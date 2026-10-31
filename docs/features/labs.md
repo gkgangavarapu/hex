@@ -11,7 +11,7 @@ debug, local `HEX_LOCAL_BUILD`, test `HEX_TEST_BUILD`, and dev-channel
 drops it, its gate reads false even when `settings.json` says on, and the
 saved setting is kept untouched. In dev builds a Dev row carries a quiet
 "Dev" tag, and `hex labs` prints each feature's audience. Every feature
-below is `Everyone` today. There is no master switch. **Labs** is always the last item in the
+below is `Everyone` except Paste picker, which is `Dev`. There is no master switch. **Labs** is always the last item in the
 sidebar and lists every Labs feature as one flat row (name, one-line
 description, toggle), each **off by default**, plus Send feedback and Run
 setup again.
@@ -42,6 +42,7 @@ Feature             Pane  Toggle (settings.json, hex settings)   On: what it doe
 │                                        another shortcut dictates like the main one (#627); General shows its recorder while on
 ├── Smart spacing   no    labs.smart_spacing           (macOS)   a dictation pasted right after a word gets one leading space (#632)
 ├── Sort and filter models no labs.picker_sort_filter   the Local transcription picker sorts by recommendation, size, or name and can show only models for the saved language (#645)
+├── Paste picker    no    labs.paste_picker            (macOS, Dev) hold Paste last dictation to pick one or more recent dictations at the caret
 └── Terminal paste  no    paste_with_shift             (Windows) paste with Ctrl+Shift+V (#477/#478; Linux keeps it in General)
 
 Settings › Labs                          // labs.page
@@ -325,6 +326,31 @@ are not built yet. Checks: `recommended_keeps_the_catalogs_order_and_the_others_
 in a real window; there is no `--snap` scene for the picker with the Lab on,
 and the Labs page goldens need regenerating on Linux with the new row.
 
+Paste picker (`paste-picker`, macOS, Dev builds only): a tap of Paste last dictation still
+pastes the latest dictation, on the key's release; holding it for 300 ms
+(`paste_picker::HOLD_THRESHOLD`) opens a list of the last eight pasted
+dictations from History (`History::recent_pasted_dictations`; no meeting
+turns) at the text caret (`accessibility::focused_caret_rect`, falling back
+to the pointer), flipping above the caret near the screen's bottom edge.
+While it shows, the session tap swallows every key (`suppression`'s
+`paste_picker_tap`): the shortcut's key or `V` cycles, `↑`/`↓` step, `⇧`
+with them (or `Space`, or ⇧-click) picks several in order, and `Delete`
+clears the picks. Releasing the shortcut's non-Shift modifiers, `Return`, or
+a click on a row pastes at the original focus, several joined as
+consecutive pastes would be (`paste::join_sequence`, `PasteKind::Picked`);
+`Escape` or a click outside closes it without pasting. The overlay
+(`rune_ui::paste_picker`) is non-activating, takes only its card's clicks,
+is left out of screen recordings, and isn't created until the first open.
+The gate is `labs::paste_picker()` where the press starts
+(`recognition`); off, Paste last pastes on the press as before. Checks: the
+`paste_picker` tests in [paste_picker.rs](../../src/paste_picker.rs) and
+[rune_ui/paste_picker.rs](../../src/rune_ui/paste_picker.rs),
+`recent_pasted_dictations_keeps_only_pasted_entries_newest_first` in
+[history.rs](../../src/history.rs), and the `paste-picker` and
+`paste-picker-multiselect` scenes (no golden). Not yet observed: a real Mac,
+caret bounds across apps (terminals and Electron editors expose none and get
+the pointer), or paste into the original app after the list closes.
+
 Normal features, not Labs: dictation, Annotate (every build; its own pane
 and switch), lowering audio while dictating (#210), Dot scope, chord shortcuts, QuickJS transformations, clipboard
 restore (Labs › Keep dictation on clipboard skips it on macOS), the
@@ -520,7 +546,7 @@ Checks: `labs_is_one_flat_list_of_toggles_off_by_default`,
 [panes.rs](../../src/rune_ui/tests/panes.rs);
 `every_feature_is_off_by_default_and_round_trips` and
 `the_old_master_switch_is_read_and_ignored` in [labs.rs](../../src/labs.rs);
-`a_dev_feature_in_a_stable_build_is_unlisted_refused_and_off` in [labs.rs](../../src/labs.rs) (a stand-in for a Dev feature, since none exists yet); `labs_parse_as_a_read_command` in [main.rs](../../src/main.rs);
+`a_dev_feature_in_a_stable_build_is_unlisted_refused_and_off` in [labs.rs](../../src/labs.rs) (a stand-in for a Dev feature), `paste_picker_is_a_dev_feature_with_its_own_bit_off_by_default`; `labs_parse_as_a_read_command` in [main.rs](../../src/main.rs);
 `status_reads_for_a_person` and
 `status_reports_labs_and_reads_older_replies_without_it` in
 [control/cli.rs](../../src/control/cli.rs);

@@ -224,7 +224,7 @@ impl HotkeyModifiers {
 
     /// Every key `required` names is among these held ones; others may be
     /// held too.
-    fn contains(self, required: Self) -> bool {
+    pub(crate) fn contains(self, required: Self) -> bool {
         side_covers(self.control, required.control)
             && side_covers(self.option, required.option)
             && side_covers(self.shift, required.shift)
@@ -1371,6 +1371,9 @@ pub struct LabsSettings {
     /// The Local transcription picker offers a sort (Recommended, Size,
     /// Name) and a "Supports the saved language" toggle (issue 645).
     pub picker_sort_filter: bool,
+    /// Holding Paste last dictation opens a floating list of recent
+    /// dictations at the text caret (macOS).
+    pub paste_picker: bool,
 }
 
 /// The idle times Labs › Unload model when idle offers, in minutes.
@@ -1396,6 +1399,7 @@ impl Default for LabsSettings {
             smart_spacing: false,
             spoken_symbols: false,
             picker_sort_filter: false,
+            paste_picker: false,
         }
     }
 }

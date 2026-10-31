@@ -343,6 +343,11 @@ const KEYS: &[Key] = &[
         "Labs: sort the Local transcription picker by recommendation, size, or name, and show only models for the saved language",
     ),
     key(
+        "labs.paste_picker",
+        Kind::Bool,
+        "Labs: hold Paste last dictation to pick from recent dictations (macOS)",
+    ),
+    key(
         "meetings.enabled",
         Kind::Bool,
         "Labs: Meetings (beta), call detection, recording, and transcripts",

@@ -259,6 +259,12 @@ fn rows(ui: &Ui) -> Vec<Row> {
                 tr("Smart spacing"),
                 tr("Add a space before a dictation pasted right after a word"),
             ));
+            rows.push(row(
+                Feature::PastePicker,
+                &KEYBOARD,
+                tr("Paste picker"),
+                tr("Hold Paste last dictation to pick from recent dictations"),
+            ));
         }
     }
     rows.push(row(
@@ -340,6 +346,7 @@ fn row_key(feature: Feature) -> &'static str {
         Feature::SmartSpacing => "lab-smart-spacing",
         Feature::SpokenSymbols => "lab-spoken-symbols",
         Feature::PickerSortFilter => "lab-picker-sort-filter",
+        Feature::PastePicker => "lab-paste-picker",
     }
 }
 
