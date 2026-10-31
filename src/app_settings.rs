@@ -224,7 +224,7 @@ impl HotkeyModifiers {
 
     /// Every key `required` names is among these held ones; others may be
     /// held too.
-    fn contains(self, required: Self) -> bool {
+    pub(crate) fn contains(self, required: Self) -> bool {
         side_covers(self.control, required.control)
             && side_covers(self.option, required.option)
             && side_covers(self.shift, required.shift)
@@ -1368,6 +1368,9 @@ pub struct LabsSettings {
     /// Spoken punctuation and symbol words ("comma", "hashtag",
     /// "underscore") become characters joined to their words (issue 678).
     pub spoken_symbols: bool,
+    /// Holding Paste last dictation opens a floating list of recent
+    /// dictations at the text caret (macOS).
+    pub paste_picker: bool,
 }
 
 /// The idle times Labs › Unload model when idle offers, in minutes.
@@ -1392,6 +1395,7 @@ impl Default for LabsSettings {
             second_dictation_shortcut: false,
             smart_spacing: false,
             spoken_symbols: false,
+            paste_picker: false,
         }
     }
 }

@@ -965,6 +965,11 @@ unsafe extern "C" fn event_callback(
             event
         };
     }
+    let picker_swallows = match paste_picker_tap(event_type, event) {
+        PickerSwallow::No => false,
+        PickerSwallow::Only => return ptr::null_mut(),
+        PickerSwallow::AfterListener => true,
+    };
     #[cfg(hex_capture)]
     let list_swallows = match list_tap(event_type, event) {
         ListSwallow::No => false,
@@ -1090,13 +1095,82 @@ unsafe extern "C" fn event_callback(
     if let Some(key) = capture_key
         && !suppress
         && !list_swallows
+        && !picker_swallows
     {
         crate::capture_host::report_input(capture_at, key);
     }
-    if suppress || list_swallows {
+    if suppress || list_swallows || picker_swallows {
         ptr::null_mut()
     } else {
         event
+    }
+}
+
+enum PickerSwallow {
+    No,
+    Only,
+    AfterListener,
+}
+
+/// Hands the open Paste picker (`labs.paste_picker`) its keys, modifier
+/// releases, and outside clicks on the session tap's thread, keeping every
+/// key press and its matching release away from the focused app.
+fn paste_picker_tap(event_type: u32, event: EventRef) -> PickerSwallow {
+    use crate::paste_picker::{
+        PickerKeyDisposition, is_open, tap_flags, tap_key_down, tap_key_up, tap_mouse_down,
+    };
+    static TAKEN: Mutex<u128> = Mutex::new(0);
+    if event_type == EVENT_FLAGS_CHANGED {
+        if is_open() && crate::labs::paste_picker() && !crate::app_settings::hotkey_capture_active()
+        {
+            // SAFETY: CoreGraphics supplied a valid event.
+            tap_flags(unsafe { CGEventGetFlags(event) });
+        }
+        return PickerSwallow::No;
+    }
+    if matches!(
+        event_type,
+        EVENT_LEFT_MOUSE_DOWN | EVENT_RIGHT_MOUSE_DOWN | EVENT_OTHER_MOUSE_DOWN
+    ) {
+        if is_open() {
+            // SAFETY: CoreGraphics supplied a valid mouse event.
+            let CgPoint { x, y } = unsafe { CGEventGetLocation(event) };
+            tap_mouse_down(x, y);
+        }
+        return PickerSwallow::No;
+    }
+    if !matches!(event_type, EVENT_KEY_DOWN | EVENT_KEY_UP) {
+        return PickerSwallow::No;
+    }
+    // SAFETY: CoreGraphics supplied a valid keyboard event.
+    let code = unsafe { CGEventGetIntegerValueField(event, KEYBOARD_EVENT_KEYCODE) } as u16;
+    if event_type == EVENT_KEY_UP {
+        tap_key_up(code);
+        let Some(bit) = 1u128.checked_shl(u32::from(code)) else {
+            return PickerSwallow::No;
+        };
+        let mut taken = TAKEN.lock().unwrap_or_else(|error| error.into_inner());
+        let ours = *taken & bit != 0;
+        *taken &= !bit;
+        return if ours {
+            PickerSwallow::AfterListener
+        } else {
+            PickerSwallow::No
+        };
+    }
+    if !is_open() || !crate::labs::paste_picker() || crate::app_settings::hotkey_capture_active() {
+        return PickerSwallow::No;
+    }
+    // SAFETY: CoreGraphics supplied a valid keyboard event.
+    let flags = unsafe { CGEventGetFlags(event) };
+    let autorepeat = unsafe { CGEventGetIntegerValueField(event, KEYBOARD_EVENT_AUTOREPEAT) } != 0;
+    if tap_key_down(code, flags, autorepeat) == PickerKeyDisposition::Swallow {
+        if let Some(bit) = 1u128.checked_shl(u32::from(code)) {
+            *TAKEN.lock().unwrap_or_else(|error| error.into_inner()) |= bit;
+        }
+        PickerSwallow::Only
+    } else {
+        PickerSwallow::No
     }
 }
 

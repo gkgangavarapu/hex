@@ -402,6 +402,8 @@ pub fn listen(
     #[cfg(hex_capture)]
     let capture_environment = recording_environment.clone();
     let (mut microphone_revision, microphone) = crate::app_settings::microphone_selection();
+    let picker_history = history.clone();
+    let mut paste_picker_hold = crate::paste_picker::PendingHold::default();
     let dictation_worker = DictationWorker::start(
         input_monitor.activity.clone(),
         transformations.clone(),
@@ -902,6 +904,12 @@ pub fn listen(
         if hotkey_capture_suspended || programmatic.is_some() {
             capture_shortcut.reset();
         }
+        if hotkey_capture_suspended || programmatic.is_some() || !crate::labs::paste_picker() {
+            paste_picker_hold.cancel();
+            if crate::paste_picker::is_open() {
+                crate::paste_picker::close();
+            }
+        }
         while let Ok(observed) = input_monitor.events.try_recv() {
             let _acknowledge = input_monitor.acknowledge_after(observed);
             let input_event = observed.event;
@@ -914,6 +922,21 @@ pub fn listen(
             }
             if hotkey_capture_suspended {
                 continue;
+            }
+            if paste_picker_hold.is_active() {
+                let outcome =
+                    step_paste_picker_hold(&mut paste_picker_hold, input_event, capture_at);
+                apply_paste_picker_outcome(
+                    outcome,
+                    picker_history.as_ref(),
+                    &dictation_worker,
+                    &input.device_name(),
+                    &mut events,
+                )?;
+                if input_event.is_escape_down() {
+                    hotkeys.track_key_state(input_event, capture_at);
+                    continue;
+                }
             }
             #[cfg(hex_capture)]
             if let Some(host) = capture_host.as_mut() {
@@ -967,6 +990,22 @@ pub fn listen(
             for (shortcut, action) in hotkeys.process(input_event, capture_at) {
                 if action == HotkeyAction::Start {
                     hotkeys.raw_capture = shortcut == Shortcut::Raw;
+                    if crate::paste_picker::is_open() {
+                        crate::paste_picker::close();
+                    }
+                }
+                if action == HotkeyAction::PasteLast
+                    && crate::labs::paste_picker()
+                    && let Some(binding) = crate::app_settings::runtime_hotkeys()
+                        .paste_last
+                        .filter(|binding| binding.key_code.is_some())
+                {
+                    feedback::retract_start();
+                    input.cancel()?;
+                    dictation_worker.prepare_paste();
+                    paste_picker_hold.begin(binding, capture_at);
+                    emit_engine_state(&mut events, false, &dictation_worker, &input.device_name())?;
+                    continue;
                 }
                 let accepted = handle_hotkey_action(
                     action,
@@ -1004,6 +1043,25 @@ pub fn listen(
         // ends the press first.
         if !hotkey_capture_suspended && input_monitor.pending_events().oldest().is_none() {
             hotkeys.break_chords(CaptureInstant::now());
+        }
+        if paste_picker_hold.is_active() {
+            let outcome = paste_picker_hold.poll(CaptureInstant::now());
+            apply_paste_picker_outcome(
+                outcome,
+                picker_history.as_ref(),
+                &dictation_worker,
+                &input.device_name(),
+                &mut events,
+            )?;
+        }
+        while let Some(texts) = crate::paste_picker::take_commit() {
+            apply_paste_picker_outcome(
+                crate::paste_picker::HoldOutcome::Commit(texts),
+                picker_history.as_ref(),
+                &dictation_worker,
+                &input.device_name(),
+                &mut events,
+            )?;
         }
         let mut received_worker_event = false;
         while let Some(event) = dictation_worker.try_recv() {
@@ -1079,7 +1137,7 @@ pub fn listen(
         input_monitor.set_escape_cancels(claims_escape(
             programmatic.is_some(),
             hotkeys.any_recording(),
-            capture_escape,
+            capture_escape || paste_picker_hold.is_active(),
             || dictation_worker.has_escape_cancellable_job(),
         ));
         if received_worker_event {
@@ -1172,7 +1230,12 @@ pub fn listen(
             }
         }
 
-        let audio = input.recv_timeout(Duration::from_millis(20))?;
+        let wait = if paste_picker_hold.is_active() {
+            Duration::from_millis(2)
+        } else {
+            Duration::from_millis(20)
+        };
+        let audio = input.recv_timeout(wait)?;
         if let (Some(active), Some(audio)) = (&mut programmatic, &audio) {
             if active.last_level.elapsed() >= Duration::from_millis(30) {
                 let _ = active.levels.try_send(level_for(&audio.samples));
@@ -1199,6 +1262,7 @@ pub fn listen(
     if let Some(host) = &mut capture_host {
         host.shutdown(&input);
     }
+    crate::paste_picker::close();
     drop(personal_commands);
     events.emit(&VoiceEvent::State {
         timestamp_ms: now_ms(),
@@ -1496,6 +1560,71 @@ fn claims_escape(
     cancellable_job: impl FnOnce() -> bool,
 ) -> bool {
     !programmatic && (recording || capture_escape || cancellable_job())
+}
+
+fn step_paste_picker_hold(
+    hold: &mut crate::paste_picker::PendingHold,
+    event: InputEvent,
+    at: CaptureInstant,
+) -> crate::paste_picker::HoldOutcome {
+    match event {
+        InputEvent::Key { code, down, flags } => {
+            hold.on_key_or_flags(Some((code, down)), Some(flags), at)
+        }
+        InputEvent::Flags(flags) => hold.on_key_or_flags(None, Some(flags), at),
+        InputEvent::PhysicalKeyDown { .. } => crate::paste_picker::HoldOutcome::None,
+        InputEvent::MouseDown | InputEvent::TapDisabled => {
+            hold.cancel();
+            crate::paste_picker::HoldOutcome::None
+        }
+    }
+}
+
+fn apply_paste_picker_outcome(
+    outcome: crate::paste_picker::HoldOutcome,
+    history: Option<&crate::history::History>,
+    worker: &DictationWorker,
+    device: &str,
+    events: &mut EventLog,
+) -> Result<()> {
+    match outcome {
+        crate::paste_picker::HoldOutcome::None => {}
+        crate::paste_picker::HoldOutcome::TapPaste => {
+            if let Err(error) = worker.paste_last() {
+                feedback::play(Tone::Error);
+                events.dictation(DictationPhase::Failed(error.into()), "")?;
+            }
+            emit_engine_state(events, false, worker, device)?;
+        }
+        crate::paste_picker::HoldOutcome::OpenPicker { binding } => {
+            worker.prepare_paste();
+            let entries = history
+                .map(|store| store.recent_pasted_dictations(crate::paste_picker::MAX_ITEMS))
+                .unwrap_or_default();
+            let items = entries
+                .into_iter()
+                .map(|entry| crate::paste_picker::PickerItem {
+                    id: entry.id,
+                    text: entry.final_text,
+                    timestamp_ms: entry.timestamp_ms,
+                })
+                .collect();
+            let anchor = crate::paste_picker::resolve_anchor();
+            let v_key_code = crate::keyboard::key_code_for('v').ok();
+            crate::paste_picker::open(binding, v_key_code, items, now_ms(), anchor);
+        }
+        crate::paste_picker::HoldOutcome::Commit(texts) => {
+            let combined = crate::paste::join_sequence(texts.iter().map(String::as_str));
+            if !combined.is_empty() {
+                if let Err(error) = worker.paste_picked(combined) {
+                    feedback::play(Tone::Error);
+                    events.dictation(DictationPhase::Failed(error.into()), "")?;
+                }
+                emit_engine_state(events, false, worker, device)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Cancels the newest unfinished dictation, as Escape does while idle.
@@ -1985,7 +2114,7 @@ fn handle_dictation_event(
             result: Ok(text),
         } => {
             let phase = match kind {
-                PasteKind::LastTranscript => DictationPhase::Repasted,
+                PasteKind::LastTranscript | PasteKind::Picked => DictationPhase::Repasted,
                 PasteKind::MeetingDelta => DictationPhase::MeetingPasted,
             };
             events.dictation(phase, text)?;
