@@ -265,6 +265,13 @@ fn rows(ui: &Ui) -> Vec<Row> {
                 tr("Paste picker"),
                 tr("Hold Paste last dictation to pick from recent dictations"),
             ));
+            // macOS's recorder reads each modifier key's side.
+            rows.push(row(
+                Feature::SidedChords,
+                &KEYBOARD,
+                tr("Sided modifier chords"),
+                tr("Record which side each modifier of a shortcut is on, such as Right ⌘ + Right ⌥"),
+            ));
         }
     }
     rows.push(row(
@@ -347,6 +354,7 @@ fn row_key(feature: Feature) -> &'static str {
         Feature::SpokenSymbols => "lab-spoken-symbols",
         Feature::PickerSortFilter => "lab-picker-sort-filter",
         Feature::PastePicker => "lab-paste-picker",
+        Feature::SidedChords => "lab-sided-modifier-chords",
     }
 }
 

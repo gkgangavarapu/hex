@@ -348,6 +348,11 @@ const KEYS: &[Key] = &[
         "Labs: hold Paste last dictation to pick from recent dictations (macOS)",
     ),
     key(
+        "labs.sided_modifier_chords",
+        Kind::Bool,
+        "Labs: the shortcut recorder keeps which side each modifier of a modifier-only chord is on, such as Right Command + Right Option (macOS)",
+    ),
+    key(
         "meetings.enabled",
         Kind::Bool,
         "Labs: Meetings (beta), call detection, recording, and transcripts",

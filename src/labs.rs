@@ -81,10 +81,11 @@ pub enum Feature {
     SpokenSymbols,
     PickerSortFilter,
     PastePicker,
+    SidedChords,
 }
 
 impl Feature {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::Meetings,
         Self::VoiceFilter,
         Self::Playground,
@@ -108,6 +109,7 @@ impl Feature {
         Self::SpokenSymbols,
         Self::PickerSortFilter,
         Self::PastePicker,
+        Self::SidedChords,
     ];
 
     /// The features this OS and build have.
@@ -152,7 +154,8 @@ impl Feature {
             | Self::SecondDictationShortcut
             | Self::SmartSpacing
             | Self::SpokenSymbols
-            | Self::PickerSortFilter => Audience::Everyone,
+            | Self::PickerSortFilter
+            | Self::SidedChords => Audience::Everyone,
             Self::PastePicker => Audience::Dev,
         }
     }
@@ -181,7 +184,8 @@ impl Feature {
             | Self::CopyOnly
             | Self::SecondDictationShortcut
             | Self::SmartSpacing
-            | Self::PastePicker => cfg!(target_os = "macos"),
+            | Self::PastePicker
+            | Self::SidedChords => cfg!(target_os = "macos"),
             Self::KeyboardModelSwitching => crate::keyboard_input_sources::available(),
             Self::Playground
             | Self::LiveText
@@ -221,6 +225,7 @@ impl Feature {
             Self::SpokenSymbols => "spoken-symbols",
             Self::PickerSortFilter => "picker-sort-filter",
             Self::PastePicker => "paste-picker",
+            Self::SidedChords => "sided-modifier-chords",
         }
     }
 
@@ -250,6 +255,7 @@ impl Feature {
             Self::SpokenSymbols => "labs.spoken_symbols",
             Self::PickerSortFilter => "labs.picker_sort_filter",
             Self::PastePicker => "labs.paste_picker",
+            Self::SidedChords => "labs.sided_modifier_chords",
         }
     }
 
@@ -304,6 +310,9 @@ impl Feature {
                 "Sort the Local transcription picker by size or name and show only models for the saved language"
             }
             Self::PastePicker => "Hold Paste last dictation to pick from recent dictations",
+            Self::SidedChords => {
+                "Record which side each modifier of a shortcut is on, such as Right Command + Right Option"
+            }
         }
     }
 
@@ -337,6 +346,7 @@ impl Feature {
             Self::SpokenSymbols => settings.labs.spoken_symbols,
             Self::PickerSortFilter => settings.labs.picker_sort_filter,
             Self::PastePicker => settings.labs.paste_picker,
+            Self::SidedChords => settings.labs.sided_modifier_chords,
         }
     }
 
@@ -365,6 +375,7 @@ impl Feature {
             Self::SpokenSymbols => settings.labs.spoken_symbols = on,
             Self::PickerSortFilter => settings.labs.picker_sort_filter = on,
             Self::PastePicker => settings.labs.paste_picker = on,
+            Self::SidedChords => settings.labs.sided_modifier_chords = on,
         }
     }
 }
@@ -384,9 +395,10 @@ const FILLER_WORDS: u32 = 1 << 10;
 const SUBTITLE_EXPORT: u32 = 1 << 11;
 const SMART_SPACING: u32 = 1 << 12;
 const SPOKEN_SYMBOLS: u32 = 1 << 13;
-const PASTE_PICKER: u32 = 1 << 14;
+const SIDED_CHORDS: u32 = 1 << 14;
+const PASTE_PICKER: u32 = 1 << 15;
 /// Unload-idle minutes sit above the switches.
-const MINUTES_SHIFT: u32 = 15;
+const MINUTES_SHIFT: u32 = 16;
 
 /// This process's `labs` switches: unknown until settings load or one is
 /// first read.
@@ -485,6 +497,13 @@ pub fn paste_picker() -> bool {
     on(PASTE_PICKER)
 }
 
+/// The shortcut recorder keeps each modifier's side in a modifier-only
+/// chord of two or more keys (macOS; read as each recording starts).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn sided_modifier_chords() -> bool {
+    on(SIDED_CHORDS)
+}
+
 /// How long the speech model may sit unused before the engine unloads it,
 /// while Labs › Unload model when idle is on.
 pub fn unload_idle() -> Option<std::time::Duration> {
@@ -545,6 +564,11 @@ fn encode_where(settings: &LabsSettings, reaches: impl Fn(Feature) -> bool) -> u
             SPOKEN_SYMBOLS,
         ),
         (Feature::PastePicker, settings.paste_picker, PASTE_PICKER),
+        (
+            Feature::SidedChords,
+            settings.sided_modifier_chords,
+            SIDED_CHORDS,
+        ),
     ]
     .into_iter()
     .filter(|(feature, on, _)| *on && reaches(*feature))
@@ -839,6 +863,18 @@ mod tests {
         assert_eq!(state >> MINUTES_SHIFT, 24 * 60);
         assert_eq!(encode_where(&labs, stable) & PASTE_PICKER, 0);
         assert!(resolve("paste-picker", stable).is_err());
+    }
+
+    #[test]
+    fn sided_modifier_chords_is_its_own_bit_and_off_by_default() {
+        let mut labs = LabsSettings::default();
+        assert_eq!(encode_where(&labs, |_| true) & SIDED_CHORDS, 0);
+        labs.sided_modifier_chords = true;
+        labs.unload_idle_minutes = 24 * 60;
+        let state = encode_where(&labs, |_| true);
+        assert_ne!(state & SIDED_CHORDS, 0);
+        assert_eq!(state & SPOKEN_SYMBOLS, 0);
+        assert_eq!(state >> MINUTES_SHIFT, 24 * 60);
     }
 
     #[test]
