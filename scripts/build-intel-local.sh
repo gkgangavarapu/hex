@@ -71,7 +71,8 @@ mkdir -p "$dist"
 rm -f "$dmg" "$zip"
 hdiutil create -quiet -fs HFS+ -format UDZO -volname "Hex" -srcfolder "$stage" "$dmg" >/dev/null
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$bundle" "$zip"
-shasum -a 256 "$dmg" "$zip" >"$dist/SHA256SUMS"
+# Relative names, so `shasum -a 256 -c SHA256SUMS` works from dist/.
+( cd "$dist" && shasum -a 256 "$(basename "$dmg")" "$(basename "$zip")" >SHA256SUMS )
 
 echo
 echo "Built Intel Hex $version:"
