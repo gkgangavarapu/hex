@@ -74,3 +74,15 @@ dragging `Hex.app` to Applications; the first launch needs right-click → Open
 
 `LSMinimumSystemVersion` is 15.0, so the Intel build runs on macOS 15 and
 later Intel Macs.
+
+## Building without a local Xcode 26
+
+`.github/workflows/build-macos-intel.yml` is **manual only** (never scheduled).
+Dispatched from this fork's Actions tab (or `gh workflow run "Build Intel macOS
+app"`), it builds on GitHub's standard x64 `macos-26-intel` runner — which has
+Xcode 26 and a native x86_64 toolchain — and attaches the DMG to a release
+tagged `intel-v<version>` in this fork. That is the path when no Mac with
+Xcode 26 is available.
+
+Both paths produce the same unsigned, ad-hoc-signed DMG; neither publishes to
+upstream's release service.

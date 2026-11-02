@@ -1,0 +1,75 @@
+name: Build Intel macOS app
+
+# Manual only. Builds the unsigned, ad-hoc-signed Intel (x86_64) Hex.app and
+# DMG from a commit of this fork on GitHub's standard x64 macOS 26 runner,
+# then attaches them to a release in this fork named "Hex <version> (Intel)"
+# (tag intel-v<version>).
+#
+# This exists for builds made without a local Xcode 26: this workflow is never
+# scheduled. Building on your own Mac instead: scripts/build-intel-local.sh.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch, or tag to build from
+        required: true
+        default: intel
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-macos-intel
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Standard GitHub-hosted x64 runner: native x86_64 Rust, Xcode 26 with the
+    # macOS 26 SDK that Hex builds against.
+    runs-on: macos-26-intel
+    timeout-minutes: 240
+    steps:
+      - name: Check out the build ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Confirm this is an Intel runner
+        run: |
+          [ "$(uname -m)" = x86_64 ] || { echo "::error::expected an x86_64 runner, got $(uname -m)"; exit 1; }
+          xcrun --sdk macosx --show-sdk-version
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: macos-intel
+      - name: Install the Metal toolchain
+        run: xcrun --sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
+      - name: Build the Intel app and DMG
+        run: scripts/build-intel-local.sh
+      - name: Attach the DMG to a release in this fork
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          tag="intel-v$version"
+          dmg="dist/hex-$version-macos-x64.dmg"
+          zip="dist/hex-$version-macos-x64.zip"
+          [ -f "$dmg" ] || { echo "::error::$dmg was not built"; exit 1; }
+          notes="Intel (x86_64) macOS build of Hex $version, built from $GITHUB_SHA on GitHub's macos-26-intel runner.
+
+          Ad-hoc signed, not notarized. Open the DMG, drag Hex.app to Applications, then right-click Hex.app -> Open the first time. It never auto-updates: install a newer intel-v* release to update.
+
+          Upstream stable release: v$version."
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$dmg" "$zip" dist/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" "$dmg" "$zip" dist/SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Hex $version (Intel)" \
+              --notes "$notes"
+          fi
+          echo "### Intel Hex $version" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
