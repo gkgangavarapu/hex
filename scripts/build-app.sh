@@ -6,6 +6,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 # HEX_TEST_BUILD=1 builds the CI test app: ad-hoc signed, under its own
 # name and bundle ID so it installs beside the released Hex and never
 # touches its permissions; it never checks for updates.
+# HEX_INTEL_BUILD=1 builds this fork's ad-hoc-signed Intel app (see
+# scripts/build-intel-local.sh): it never checks for updates, because the
+# upstream release service only ships arm64 builds.
 # HEX_LOCAL_BUILD=1 marks a build made from a checkout for its owner's own
 # machine (Developer ID signed as usual): it shows "Local build · updates off"
 # with its commit and never checks for or offers updates.
@@ -57,7 +60,7 @@ env_args=()
 if [ -z "${HEX_COMMIT:-}" ] && { [ "${HEX_LOCAL_BUILD:-}" = 1 ] || [ "${HEX_TEST_BUILD:-}" = 1 ]; }; then
   HEX_COMMIT=$(git -C "$root" rev-parse --short=7 HEAD 2>/dev/null || true)
 fi
-for name in HEX_LOCAL_BUILD HEX_TEST_BUILD HEX_COMMIT HEX_BUILD_CHANNEL; do
+for name in HEX_LOCAL_BUILD HEX_TEST_BUILD HEX_INTEL_BUILD HEX_COMMIT HEX_BUILD_CHANNEL; do
   value=${!name:-}
   if [ -n "$value" ]; then
     case "$value" in

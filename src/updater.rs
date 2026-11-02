@@ -249,6 +249,12 @@ impl Updater {
         let method = platform::method();
         let disabled = if option_env!("HEX_TEST_BUILD") == Some("1") {
             Some(DesktopUpdateStatus::Unavailable)
+        } else if option_env!("HEX_INTEL_BUILD") == Some("1") {
+            // This fork's Intel build tracks the fork's own stable tags by
+            // reinstalling a DMG; the upstream release service only carries
+            // arm64 macOS builds, so an automatic update would replace this
+            // app with one this Mac cannot run.
+            Some(DesktopUpdateStatus::Unavailable)
         } else if crate::app_paths::is_local_build() {
             Some(DesktopUpdateStatus::SourceBuild)
         } else if managed_by_policy() {
